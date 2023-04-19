@@ -9,6 +9,10 @@ object MainConfig: AutoSavePluginConfig("main") {
 
   val group: Long by value()
 
-  val api: String by value()
+  val api: String by value("http://127.0.0.1:8080/plana")
+
+  val uploadDelay: Long by value(1000L * 30)
+
+  val storyPath: String by value("/srv/live2d/story/vol3/")
 
 }

@@ -4,6 +4,8 @@ import io.bluearchive.plana.command.ReloadMainConfigCommand
 import io.bluearchive.plana.config.MainConfig
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -12,19 +14,26 @@ import net.mamoe.mirai.console.command.CommandManager.INSTANCE.register
 import net.mamoe.mirai.console.command.CommandManager.INSTANCE.unregister
 import net.mamoe.mirai.console.plugin.jvm.JvmPluginDescription
 import net.mamoe.mirai.console.plugin.jvm.KotlinPlugin
+import net.mamoe.mirai.contact.remarkOrNameCardOrNick
 import net.mamoe.mirai.event.Event
 import net.mamoe.mirai.event.EventChannel
 import net.mamoe.mirai.event.events.BotOnlineEvent
+import net.mamoe.mirai.event.events.GroupMessageEvent
 import net.mamoe.mirai.event.events.GroupMessagePostSendEvent
 import net.mamoe.mirai.event.globalEventChannel
-import net.mamoe.mirai.message.data.Image
+import net.mamoe.mirai.message.data.*
 import net.mamoe.mirai.message.data.Image.Key.queryUrl
-import net.mamoe.mirai.utils.info
 import java.io.BufferedReader
 import java.io.DataOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.util.Timer
+import java.util.TimerTask
+import kotlin.concurrent.schedule
 
 object Plana : KotlinPlugin(
   JvmPluginDescription.loadFromResource()
@@ -32,6 +41,11 @@ object Plana : KotlinPlugin(
 
   private lateinit var plana: Bot
   private val planaTaskList = mutableListOf<suspend (plana: Bot) -> Unit>()
+  private val uploadFileRegex = Regex("\\[[已未待]校对](\\d{6,7}.json)")
+  private val uploadFileList = mutableListOf<Pair<String, String>>()
+  private val timer = Timer("story", true)
+  private var timerTask: TimerTask? = null
+  private val lock = Mutex()
 
   override fun onEnable() {
     System.setProperty("java.awt.headless", "true")
@@ -55,24 +69,61 @@ object Plana : KotlinPlugin(
           return@subscribeAlways
         }
         val imageList = it.message.filterIsInstance<Image>().map { im -> MessageSegment("image", im.queryUrl()) }
-        val planText = MessageSegment("text", it.message.contentToString())
+        val map = it.message.map { message ->
+          when(message) {
+            is At -> PlainText("@${it.target[message.target]!!.remarkOrNameCardOrNick}\n")
+            else -> message
+          }
+        }
+        val planText = MessageSegment("text", map.toMessageChain().contentToString())
         postMessage(imageList + planText)
+      }
+    globalEventChannel()
+      .filter { it is GroupMessageEvent && it.group.id == MainConfig.group }
+      .subscribeAlways<GroupMessageEvent> {
+        val fileList = it.message.filterIsInstance<FileMessage>().filter { file -> file.name.contains(uploadFileRegex) }
+        fileList.forEach { file ->
+          val fileName = file.name
+          val match = uploadFileRegex.matchEntire(fileName)!!
+          val jsonName = match.groupValues[1]
+          val url = file.toAbsoluteFile(it.group)!!.getUrl()!!
+          uploadFileList.add(jsonName to url)
+          timerTask?.cancel()
+          timerTask = timer.schedule(MainConfig.uploadDelay) {
+            runSuspend {
+              lock.withLock {
+                doUpload()
+              }
+            }
+          }
+        }
       }
     info("plana load success")
   }
 
-  fun postMessage(data: List<MessageSegment>) {
+  private fun doUpload() {
+    uploadFileList.forEach {
+      URL(it.second).openStream().use { stream ->
+        Files.copy(stream, Paths.get(MainConfig.storyPath, it.first), StandardCopyOption.REPLACE_EXISTING)
+      }
+    }
+    sendToGroup("发送了${uploadFileList.size}个文件:\n${uploadFileList.joinToString("\n") { it.first }}")
+    uploadFileList.clear()
+  }
+
+  private fun postMessage(data: List<MessageSegment>) {
     val url = URL(MainConfig.api)
-    val postData = Json.encodeToString(data)
     val conn = url.openConnection() as HttpURLConnection
+    val postData = Json.encodeToString((mapOf("data" to data)))
     conn.requestMethod = "POST"
     conn.doOutput = true
-    conn.setRequestProperty("Content-Type", "application/json")
-    conn.setRequestProperty("Content-Length", postData.length.toString())
     conn.useCaches = false
+    conn.setRequestProperty("Content-Type", "application/json")
+    conn.setRequestProperty("Content-Length", postData.toByteArray().size.toString())
 
     DataOutputStream(conn.outputStream).use { it.writeBytes(postData) }
     BufferedReader(InputStreamReader(conn.inputStream)).use {}
+
   }
 
   fun runSuspend(block: suspend () -> Unit) = launch(coroutineContext) {
@@ -81,6 +132,12 @@ object Plana : KotlinPlugin(
 
   fun runAsync(block: suspend (event: EventChannel<Event>) -> Unit) = async(coroutineContext) {
     block(globalEventChannel())
+  }
+
+  fun sendToGroup(message: String) {
+    runSuspend {
+      plana.getGroup(MainConfig.group)?.sendMessage(MessageChainBuilder().also { it.add(message) }.build())
+    }
   }
 
   fun info(message: String?) = logger.info(message)
