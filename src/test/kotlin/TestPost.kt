@@ -26,4 +26,9 @@ class TestPost {
     BufferedReader(InputStreamReader(conn.inputStream)).use {}
   }
 
+  @Test
+  fun testRegex() {
+    println("[未校对]31051.json".contains(Regex("\\[[已未待]校对](\\d{6,7}.json)")))
+  }
+
 }

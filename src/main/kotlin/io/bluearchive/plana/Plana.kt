@@ -2,6 +2,7 @@ package io.bluearchive.plana
 
 import io.bluearchive.plana.command.ReloadMainConfigCommand
 import io.bluearchive.plana.config.MainConfig
+import io.bluearchive.plana.utils.CDN
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -28,6 +29,7 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
@@ -75,7 +77,7 @@ object Plana : KotlinPlugin(
             else -> message
           }
         }
-        val planText = MessageSegment("text", map.toMessageChain().contentToString())
+        val planText = MessageSegment("text", URLEncoder.encode(map.toMessageChain().contentToString()))
         postMessage(imageList + planText)
       }
     globalEventChannel()
@@ -108,6 +110,7 @@ object Plana : KotlinPlugin(
       }
     }
     sendToGroup("发送了${uploadFileList.size}个文件:\n${uploadFileList.joinToString("\n") { it.first }}")
+    CDN.purge(uploadFileList.map { it.first })
     uploadFileList.clear()
   }
 

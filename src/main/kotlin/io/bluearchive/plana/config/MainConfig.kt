@@ -15,4 +15,8 @@ object MainConfig: AutoSavePluginConfig("main") {
 
   val storyPath: String by value("/srv/live2d/story/vol3/")
 
+  val secretId: String by value()
+
+  val secretKey: String by value()
+
 }
