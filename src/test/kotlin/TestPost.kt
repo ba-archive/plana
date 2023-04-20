@@ -7,7 +7,9 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.Base64
 
 class TestPost {
 
@@ -28,7 +30,15 @@ class TestPost {
 
   @Test
   fun testRegex() {
-    println("[未校对]31051.json".contains(Regex("\\[[已未待]校对](\\d{6,7}.json)")))
+    println("[未校对]31051.json".contains(Regex("\\[[已未待]校对](\\d{5,7}.json)")))
+  }
+
+  @Test
+  fun testURLEncode() {
+    val encode = Base64.getEncoder().encode("encode+space+test test".toByteArray())
+    println(encode.decodeToString())
+    val decode = Base64.getDecoder().decode(encode)
+    println(decode.decodeToString())
   }
 
 }

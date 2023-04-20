@@ -19,4 +19,8 @@ object MainConfig: AutoSavePluginConfig("main") {
 
   val secretKey: String by value()
 
+  val httpPort: Int by value(13502)
+
+  val proxyPort: Int by value(7890)
+
 }
